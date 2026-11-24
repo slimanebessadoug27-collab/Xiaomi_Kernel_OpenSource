@@ -30,10 +30,30 @@ jobs:
         run: |
           export PATH="$PWD/toolchain/clang/bin:$PWD/toolchain/gcc64/bin:$PWD/toolchain/gcc32/bin:$PATH"
           mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware && touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
-                  
+          
           make O=out ARCH=arm64 biloba_defconfig
+          ./scripts/config --file out/.config \
+            -e WLAN \
+            -e WLAN_VENDOR_ATH \
+            -e ATH_COMMON \
+            -e ATH_CARDS \
+            -e CFG80211 \
+            -e CFG80211_WEXT \
+            -e MAC80211 \
+            -e MAC80211_MESH \
+            -e MAC80211_LEDS \
+            -e ATH9K_HW \
+            -e ATH9K_COMMON \
+            -e ATH9K_HTC \
+            -e USB_SUPPORT \
+            -e USB \
+            -e USB_ANNOUNCE_NEW_DEVICES \
+            -e USB_OTG \
+            -e PACKET_MMAP \
+            -e BRIDGE
+          make O=out ARCH=arm64 olddefconfig
+          grep -E "CONFIG_ATH9K_HTC|CONFIG_MAC80211" out/.config
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image.gz-dtb KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -fno-builtin-stpcpy -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
-
 
       - name: Package AnyKernel3
         run: |
