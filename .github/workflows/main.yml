@@ -21,9 +21,10 @@ jobs:
       - name: Download Toolchains
         run: |
           mkdir -p toolchain
-          git clone --depth=1 https://github.com toolchain/clang
-          git clone --depth=1 https://github.com toolchain/gcc64
-          git clone --depth=1 https://github.com toolchain/gcc32
+          GH="https://github.com"
+          git clone --depth=1 "$GH/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git" toolchain/clang
+          git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
+          git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
       - name: Build Kernel
         run: |
@@ -33,7 +34,8 @@ jobs:
 
       - name: Package AnyKernel3
         run: |
-          git clone --depth=1 https://github.com
+          GH="https://github.com"
+          git clone --depth=1 "$GH/osm0sis/AnyKernel3.git"
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           cd AnyKernel3 && zip -r9 ../Biloba-NetHunter.zip * -x .git README.md *placeholder
