@@ -29,8 +29,7 @@ jobs:
       - name: Build Kernel
         run: |
           export PATH="$PWD/toolchain/clang/bin:$PWD/toolchain/gcc64/bin:$PWD/toolchain/gcc32/bin:$PATH"
-          mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware
-        cp -r drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/* out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/ 2>/dev/null || touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/fw_huaxing_v0c.i
+          mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmwarecp -r drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/* out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/ 2>/dev/null || touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/fw_huaxing_v0c.i
 
           make O=out ARCH=arm64 biloba_defconfig
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image.gz-dtb KCFLAGS="-Wno-error -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
