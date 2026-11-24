@@ -32,7 +32,7 @@ jobs:
           mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware && touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
                   
           make O=out ARCH=arm64 biloba_defconfig
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image.gz-dtb KCFLAGS="-Wno-error -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image.gz-dtb KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
 
 
       - name: Package AnyKernel3
