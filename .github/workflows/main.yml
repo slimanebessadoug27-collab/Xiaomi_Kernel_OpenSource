@@ -1,4 +1,4 @@
-name: Build Complete Biloba NetHunter Kernel
+name: Build Biloba NetHunter Final
 
 on:
   workflow_dispatch:
@@ -26,19 +26,29 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply NetHunter, RegDB & MUSB Patches
+      - name: Apply MediaTek Direct OTG + NetHunter Patches
         run: |
-          # 1. إضافة مسارات الفيرموير الخاصة بأندرويد
+          # 1. تحويل نقاط اتصال ath9k_htc إلى Bulk لتجاوز تعليق MediaTek MUSB
+          sed -i 's/usb_sndintpipe/usb_sndbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+          sed -i 's/usb_rcvintpipe/usb_rcvbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+          sed -i 's/usb_fill_int_urb(\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^)]*\))/usb_fill_bulk_urb(\1,\2,\3,\4,\5,\6,\7)/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+
+          # 2. إزالة فحص تطابق نوع الأنبوب في urb.c حتى تقبل نواة 4.14 حزم Bulk على منفذ Interrupt دون تحذير أو رفض
+          if [ -f drivers/usb/core/urb.c ]; then
+            sed -i 's/usb_pipetype(urb->pipe) != pipetypes\[xfertype\]/0/g' drivers/usb/core/urb.c
+          fi
+
+          # 3. إضافة مسارات الفيرموير الخاصة بأندرويد
           if [ -f drivers/base/firmware_class.c ]; then
             sed -i 's|"/lib/firmware"|"/vendor/firmware", "/system/etc/firmware", "/lib/firmware"|g' drivers/base/firmware_class.c
           fi
 
-          # 2. ترقيع mac80211 لحقن الحزم في وضع المراقبة
+          # 4. ترقيع mac80211 لحقن الحزم في وضع المراقبة
           if [ -f net/mac80211/tx.c ]; then
             sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
           fi
 
-          # 3. تجاوز فحص توقيع الوحدات (Vermagic) لإصلاح الواي فاي الداخلي للنظام
+          # 5. تجاوز فحص توقيع الوحدات لإصلاح الواي فاي الداخلي
           if [ -f kernel/module.c ]; then
             sed -i 's/if (!check_version(sechdrs, versindex, mod->name, mod,/if (0 \&\& !check_version(sechdrs, versindex, mod->name, mod,/g' kernel/module.c
           fi
@@ -105,10 +115,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Complete.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Final.zip * -x .git README.md *placeholder
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter-Complete
-          path: Biloba-NetHunter-Complete.zip
+          name: Biloba-NetHunter-Final
+          path: Biloba-NetHunter-Final.zip
