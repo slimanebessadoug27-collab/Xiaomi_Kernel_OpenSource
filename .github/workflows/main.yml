@@ -1,4 +1,4 @@
-name: Build Biloba NetHunter Kernel
+name: Build Ultimate Biloba NetHunter Kernel
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
           ref: biloba-r-oss
           depth: 1
 
-      - name: Install Dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 device-tree-compiler
@@ -26,31 +26,59 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Verify ath9k_htc Driver Integrity
+      - name: Apply NetHunter & MediaTek MUSB Patches
         run: |
-          ls -la drivers/net/wireless/ath/ath9k/hif_usb.c
+          # 1. ترقيع تعريف ath9k_htc للعمل مع متحكم MediaTek MUSB (تحويل Interrupt إلى Bulk)
+          sed -i 's/usb_sndintpipe/usb_sndbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+          sed -i 's/usb_rcvintpipe/usb_rcvbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+          sed -i 's/usb_fill_int_urb(\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^)]*\))/usb_fill_bulk_urb(\1,\2,\3,\4,\5,\6,\7)/g' drivers/net/wireless/ath/ath9k/hif_usb.c
 
-      - name: Build Kernel
+          # 2. ترقيع mac80211 للسماح بحقن الحزم (Packet Injection) في وضع Monitor Mode
+          if [ -f net/mac80211/tx.c ]; then
+            sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
+          fi
+
+          # 3. إضافة مسارات الفيرموير الخاصة بأندرويد إلى نواة البحث في النواة
+          if [ -f drivers/base/firmware_class.c ]; then
+            sed -i 's|"/lib/firmware"|"/vendor/firmware", "/system/etc/firmware", "/lib/firmware"|g' drivers/base/firmware_class.c
+          fi
+
+      - name: Configure and Build Kernel
         run: |
           export PATH="$PWD/toolchain/clang/bin:$PWD/toolchain/gcc64/bin:$PWD/toolchain/gcc32/bin:$PATH"
-          mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware && touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
+          mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware
+          touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
 
           make O=out ARCH=arm64 biloba_defconfig
+
           ./scripts/config --file out/.config \
+            -d WERROR \
             -e RFKILL \
             -e RFKILL_INPUT \
             -e WLAN \
-            -e WLAN_VENDOR_ATH \
-            -e ATH_COMMON \
-            -e ATH_CARDS \
             -e CFG80211 \
             -e CFG80211_WEXT \
             -e MAC80211 \
             -e MAC80211_MESH \
             -e MAC80211_LEDS \
+            -e WLAN_VENDOR_ATH \
+            -e ATH_COMMON \
+            -e ATH_CARDS \
             -e ATH9K_HW \
             -e ATH9K_COMMON \
             -e ATH9K_HTC \
+            -e WLAN_VENDOR_RALINK \
+            -e RT2X00 \
+            -e RT2800USB \
+            -e RT2800USB_RT33XX \
+            -e RT2800USB_RT35XX \
+            -e RT2800USB_RT53XX \
+            -e RT2800USB_RT55XX \
+            -e WLAN_VENDOR_MEDIATEK \
+            -e MT7601U \
+            -e WLAN_VENDOR_REALTEK \
+            -e RTL8187 \
+            -e RTL8XXXU \
             -e CRYPTO_ARC4 \
             -e CRYPTO_MICHAEL_MIC \
             -e CRYPTO_CCM \
@@ -59,10 +87,43 @@ jobs:
             -e USB \
             -e USB_ANNOUNCE_NEW_DEVICES \
             -e USB_OTG \
+            -e MUSB_PIO_ONLY \
+            -d USB_INVENTRA_DMA \
+            -d USB_TI_CPPI41_DMA \
+            -e USB_ACM \
+            -e USB_SERIAL \
+            -e USB_SERIAL_GENERIC \
+            -e USB_SERIAL_CH341 \
+            -e USB_SERIAL_CP210X \
+            -e USB_SERIAL_PL2303 \
+            -e USB_HID \
+            -e HID_GENERIC \
+            -e USB_CONFIGFS_F_HID \
+            -e BT \
+            -e BT_RFCOMM \
+            -e BT_RFCOMM_TTY \
+            -e BT_BNEP \
+            -e BT_HIDP \
+            -e BT_HCIBTUSB \
             -e PACKET_MMAP \
-            -e BRIDGE
+            -e BRIDGE \
+            -e IP_NF_TARGET_TTL \
+            -e NETFILTER_XT_TARGET_HL \
+            -e WIREGUARD \
+            -e FW_LOADER \
+            -e FW_LOADER_USER_HELPER \
+            -e FW_LOADER_USER_HELPER_FALLBACK
+
           make O=out ARCH=arm64 olddefconfig
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image.gz-dtb KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -fno-builtin-stpcpy -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
+
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            Image.gz-dtb \
+            KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -fno-builtin-stpcpy -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
 
       - name: Package AnyKernel3
         run: |
@@ -71,10 +132,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Ultimate.zip * -x .git README.md *placeholder
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter
-          path: Biloba-NetHunter.zip
+          name: Biloba-NetHunter-Ultimate
+          path: Biloba-NetHunter-Ultimate.zip
