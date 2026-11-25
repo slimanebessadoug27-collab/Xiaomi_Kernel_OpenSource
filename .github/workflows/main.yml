@@ -1,4 +1,4 @@
-name: Build Biloba NetHunter Final
+name: Build Biloba NetHunter Direct OTG
 
 on:
   workflow_dispatch:
@@ -26,17 +26,32 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply MediaTek Direct OTG + NetHunter Patches
+      - name: Apply Hardware Descriptor Bulk Patch for MediaTek Direct OTG
         run: |
-          # 1. تحويل نقاط اتصال ath9k_htc إلى Bulk لتجاوز تعليق MediaTek MUSB
+          # 1. تحويل نوع نقاط الاتصال في الواصف المادي (USB Endpoint Descriptor) لشريحة AR9271 إلى Bulk
+          python3 -c '
+          with open("drivers/usb/core/config.c", "r") as f:
+              code = f.read()
+          patch = """
+          if (to_usb_device(ddev)->descriptor.idVendor == cpu_to_le16(0x0cf3) &&
+              to_usb_device(ddev)->descriptor.idProduct == cpu_to_le16(0x9271)) {
+              if ((endpoint->desc.bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_INT) {
+                  endpoint->desc.bmAttributes = (endpoint->desc.bmAttributes & ~USB_ENDPOINT_XFERTYPE_MASK) | USB_ENDPOINT_XFER_BULK;
+                  endpoint->desc.bInterval = 0;
+              }
+          }
+          """
+          target = "memcpy(&endpoint->desc, d, n);"
+          assert target in code, "Target not found in config.c"
+          code = code.replace(target, target + "\n" + patch, 1)
+          with open("drivers/usb/core/config.c", "w") as f:
+              f.write(code)
+          '
+
+          # 2. تحويل أنابيب الإرسال والاستقبال في ath9k_htc إلى Bulk
           sed -i 's/usb_sndintpipe/usb_sndbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
           sed -i 's/usb_rcvintpipe/usb_rcvbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
           sed -i 's/usb_fill_int_urb(\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^)]*\))/usb_fill_bulk_urb(\1,\2,\3,\4,\5,\6,\7)/g' drivers/net/wireless/ath/ath9k/hif_usb.c
-
-          # 2. إزالة فحص تطابق نوع الأنبوب في urb.c حتى تقبل نواة 4.14 حزم Bulk على منفذ Interrupt دون تحذير أو رفض
-          if [ -f drivers/usb/core/urb.c ]; then
-            sed -i 's/usb_pipetype(urb->pipe) != pipetypes\[xfertype\]/0/g' drivers/usb/core/urb.c
-          fi
 
           # 3. إضافة مسارات الفيرموير الخاصة بأندرويد
           if [ -f drivers/base/firmware_class.c ]; then
@@ -115,10 +130,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Final.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-DirectOTG.zip * -x .git README.md *placeholder
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter-Final
-          path: Biloba-NetHunter-Final.zip
+          name: Biloba-NetHunter-DirectOTG
+          path: Biloba-NetHunter-DirectOTG.zip
