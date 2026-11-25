@@ -1,4 +1,4 @@
-name: Build Biloba NetHunter Kernel Fixed
+name: Build Complete Biloba NetHunter Kernel
 
 on:
   workflow_dispatch:
@@ -26,20 +26,22 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply Proper NetHunter & Firmware Patches
+      - name: Apply NetHunter, RegDB & MUSB Patches
         run: |
-          # 1. إضافة مسارات الفيرموير الخاصة بأندرويد (نجحت هذه الخطوة 100% في اختبارك!)
+          # 1. إضافة مسارات الفيرموير الخاصة بأندرويد
           if [ -f drivers/base/firmware_class.c ]; then
             sed -i 's|"/lib/firmware"|"/vendor/firmware", "/system/etc/firmware", "/lib/firmware"|g' drivers/base/firmware_class.c
           fi
 
-          # 2. ترقيع mac80211 للسماح بحقن الحزم (Packet Injection)
+          # 2. ترقيع mac80211 لحقن الحزم في وضع المراقبة
           if [ -f net/mac80211/tx.c ]; then
             sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
           fi
 
-          # 3. إصلاح توافق MediaTek MUSB مع شريحة AR9271 عبر ضبط فترة الاستطلاع (interval) بدلاً من تغيير نوع الأنبوب
-          sed -i 's/urb->interval = 1;/urb->interval = 4;/g' drivers/net/wireless/ath/ath9k/hif_usb.c
+          # 3. تجاوز فحص توقيع الوحدات (Vermagic) لإصلاح الواي فاي الداخلي للنظام
+          if [ -f kernel/module.c ]; then
+            sed -i 's/if (!check_version(sechdrs, versindex, mod->name, mod,/if (0 \&\& !check_version(sechdrs, versindex, mod->name, mod,/g' kernel/module.c
+          fi
 
       - name: Configure and Build Kernel
         run: |
@@ -51,11 +53,17 @@ jobs:
 
           ./scripts/config --file out/.config \
             -d WERROR \
+            -d MODVERSIONS \
+            -e MODULE_FORCE_LOAD \
+            -e MODULE_UNLOAD \
             -e RFKILL \
             -e RFKILL_INPUT \
             -e WLAN \
             -e CFG80211 \
             -e CFG80211_WEXT \
+            -e CFG80211_INTERNAL_REGDB \
+            -e CFG80211_CERTIFICATION_ONUS \
+            -d CFG80211_REQUIRE_SIGNED_REGDB \
             -e MAC80211 \
             -e MAC80211_MESH \
             -e MAC80211_LEDS \
@@ -97,10 +105,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Fixed.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Complete.zip * -x .git README.md *placeholder
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter-Fixed
-          path: Biloba-NetHunter-Fixed.zip
+          name: Biloba-NetHunter-Complete
+          path: Biloba-NetHunter-Complete.zip
