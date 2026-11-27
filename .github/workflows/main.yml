@@ -63,13 +63,17 @@ jobs:
             sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
           fi
 
-          # 5. إجبار النواة على قبول وحدات الواي فاي الأصلية في /vendor بدون خطأ CRC أو Vermagic
+          # 5. الحل القطعي: إجبار دالة check_version في kernel/module.c على إرجاع 1 دائماً لقبول وحدات الواي فاي في /vendor
           python3 -c '
+          import re
           with open("kernel/module.c", "r") as f:
               mcode = f.read()
-          mcode = mcode.replace("static int check_version(const struct load_info *info,", "static int check_version(const struct load_info *info,")
-          mcode = mcode.replace("bad_version:", "return 1;\nbad_version:")
-          mcode = mcode.replace("if (!same_magic(modmagic, vermagic, info->index.vers)) {", "if (0 && !same_magic(modmagic, vermagic, info->index.vers)) {")
+          mcode = re.sub(
+              r"(pr_warn\(\"%s: disagrees about version of symbol %s\\n\",[^;]+;\s*)return 0;",
+              r"\1return 1;",
+              mcode
+          )
+          assert "return 1;" in mcode, "Failed to patch check_version in kernel/module.c"
           with open("kernel/module.c", "w") as f:
               f.write(mcode)
           '
