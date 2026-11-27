@@ -26,9 +26,9 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply Hardware Descriptor Bulk Patch for MediaTek Direct OTG
+      - name: Apply Hardware Descriptor Bulk Patch & Fix Internal WiFi
         run: |
-          # 1. تحويل نوع نقاط الاتصال في الواصف المادي (USB Endpoint Descriptor) لشريحة AR9271 إلى Bulk
+          # 1. تحويل نوع نقاط الاتصال في الواصف المادي لشريحة AR9271 إلى Bulk
           python3 -c '
           with open("drivers/usb/core/config.c", "r") as f:
               code = f.read()
@@ -63,10 +63,16 @@ jobs:
             sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
           fi
 
-          # 5. تجاوز فحص توقيع الوحدات لإصلاح الواي فاي الداخلي
-          if [ -f kernel/module.c ]; then
-            sed -i 's/if (!check_version(sechdrs, versindex, mod->name, mod,/if (0 \&\& !check_version(sechdrs, versindex, mod->name, mod,/g' kernel/module.c
-          fi
+          # 5. إجبار النواة على قبول وحدات الواي فاي الأصلية في /vendor بدون خطأ CRC أو Vermagic
+          python3 -c '
+          with open("kernel/module.c", "r") as f:
+              mcode = f.read()
+          mcode = mcode.replace("static int check_version(const struct load_info *info,", "static int check_version(const struct load_info *info,")
+          mcode = mcode.replace("bad_version:", "return 1;\nbad_version:")
+          mcode = mcode.replace("if (!same_magic(modmagic, vermagic, info->index.vers)) {", "if (0 && !same_magic(modmagic, vermagic, info->index.vers)) {")
+          with open("kernel/module.c", "w") as f:
+              f.write(mcode)
+          '
 
       - name: Configure and Build Kernel
         run: |
@@ -78,7 +84,9 @@ jobs:
 
           ./scripts/config --file out/.config \
             -d WERROR \
-            -d MODVERSIONS \
+            --set-str LOCALVERSION "-perf" \
+            -d LOCALVERSION_AUTO \
+            -e MODVERSIONS \
             -e MODULE_FORCE_LOAD \
             -e MODULE_UNLOAD \
             -e RFKILL \
