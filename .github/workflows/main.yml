@@ -1,4 +1,4 @@
-name: Build Biloba NetHunter Direct OTG
+name: Build Biloba NetHunter Safe WiFi
 
 on:
   workflow_dispatch:
@@ -26,9 +26,9 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply Hardware Descriptor Bulk Patch & Fix Internal WiFi
+      - name: Apply Safe Direct OTG & Injection Patches
         run: |
-          # 1. تحويل نوع نقاط الاتصال في الواصف المادي لشريحة AR9271 إلى Bulk
+          # 1. تحويل نقاط اتصال AR9271 إلى Bulk
           python3 -c '
           with open("drivers/usb/core/config.c", "r") as f:
               code = f.read()
@@ -48,35 +48,20 @@ jobs:
               f.write(code)
           '
 
-          # 2. تحويل أنابيب الإرسال والاستقبال في ath9k_htc إلى Bulk
+          # 2. تحويل أنابيب ath9k_htc إلى Bulk
           sed -i 's/usb_sndintpipe/usb_sndbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
           sed -i 's/usb_rcvintpipe/usb_rcvbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
           sed -i 's/usb_fill_int_urb(\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^)]*\))/usb_fill_bulk_urb(\1,\2,\3,\4,\5,\6,\7)/g' drivers/net/wireless/ath/ath9k/hif_usb.c
 
-          # 3. إضافة مسارات الفيرموير الخاصة بأندرويد
+          # 3. مسارات الفيرموير
           if [ -f drivers/base/firmware_class.c ]; then
             sed -i 's|"/lib/firmware"|"/vendor/firmware", "/system/etc/firmware", "/lib/firmware"|g' drivers/base/firmware_class.c
           fi
 
-          # 4. ترقيع mac80211 لحقن الحزم في وضع المراقبة
+          # 4. ترقيع حقن الحزم بدون تغيير حجم الذاكرة
           if [ -f net/mac80211/tx.c ]; then
             sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
           fi
-
-          # 5. الحل القطعي: إجبار دالة check_version في kernel/module.c على إرجاع 1 دائماً لقبول وحدات الواي فاي في /vendor
-          python3 -c '
-          import re
-          with open("kernel/module.c", "r") as f:
-              mcode = f.read()
-          mcode = re.sub(
-              r"(pr_warn\(\"%s: disagrees about version of symbol %s\\n\",[^;]+;\s*)return 0;",
-              r"\1return 1;",
-              mcode
-          )
-          assert "return 1;" in mcode, "Failed to patch check_version in kernel/module.c"
-          with open("kernel/module.c", "w") as f:
-              f.write(mcode)
-          '
 
       - name: Configure and Build Kernel
         run: |
@@ -86,24 +71,12 @@ jobs:
 
           make O=out ARCH=arm64 biloba_defconfig
 
+          # الإبقاء على إعدادات الشبكة الأصلية لـ biloba كما هي وإضافة تعريف AR9271 فقط
           ./scripts/config --file out/.config \
             -d WERROR \
             --set-str LOCALVERSION "-perf" \
             -d LOCALVERSION_AUTO \
-            -e MODVERSIONS \
-            -e MODULE_FORCE_LOAD \
-            -e MODULE_UNLOAD \
-            -e RFKILL \
-            -e RFKILL_INPUT \
-            -e WLAN \
-            -e CFG80211 \
-            -e CFG80211_WEXT \
-            -e CFG80211_INTERNAL_REGDB \
-            -e CFG80211_CERTIFICATION_ONUS \
-            -d CFG80211_REQUIRE_SIGNED_REGDB \
             -e MAC80211 \
-            -e MAC80211_MESH \
-            -e MAC80211_LEDS \
             -e WLAN_VENDOR_ATH \
             -e ATH_COMMON \
             -e ATH_CARDS \
@@ -112,14 +85,6 @@ jobs:
             -e ATH9K_HTC \
             -e CRYPTO_ARC4 \
             -e CRYPTO_MICHAEL_MIC \
-            -e CRYPTO_CCM \
-            -e CRYPTO_GCM \
-            -e USB_SUPPORT \
-            -e USB \
-            -e USB_ANNOUNCE_NEW_DEVICES \
-            -e USB_OTG \
-            -e PACKET_MMAP \
-            -e BRIDGE \
             -e FW_LOADER \
             -e FW_LOADER_USER_HELPER \
             -e FW_LOADER_USER_HELPER_FALLBACK
@@ -142,10 +107,10 @@ jobs:
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-DirectOTG.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Safe.zip * -x .git README.md *placeholder
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter-DirectOTG
-          path: Biloba-NetHunter-DirectOTG.zip
+          name: Biloba-NetHunter-Safe
+          path: Biloba-NetHunter-Safe.zip
