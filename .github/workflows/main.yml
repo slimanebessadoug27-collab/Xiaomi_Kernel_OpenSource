@@ -1,4 +1,4 @@
-name: Build Biloba NetHunter Safe WiFi
+name: Build Biloba Kernel AR9271
 
 on:
   workflow_dispatch:
@@ -11,12 +11,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: biloba-r-oss
-          depth: 1
+          fetch-depth: 1
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 device-tree-compiler
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 device-tree-compiler
 
       - name: Download Toolchains
         run: |
@@ -26,70 +26,37 @@ jobs:
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git" toolchain/gcc64
           git clone --depth=1 "$GH/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git" toolchain/gcc32
 
-      - name: Apply Safe Direct OTG & Injection Patches
-        run: |
-          # 1. تحويل نقاط اتصال AR9271 إلى Bulk
-          python3 -c '
-          with open("drivers/usb/core/config.c", "r") as f:
-              code = f.read()
-          patch = """
-          if (to_usb_device(ddev)->descriptor.idVendor == cpu_to_le16(0x0cf3) &&
-              to_usb_device(ddev)->descriptor.idProduct == cpu_to_le16(0x9271)) {
-              if ((endpoint->desc.bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_INT) {
-                  endpoint->desc.bmAttributes = (endpoint->desc.bmAttributes & ~USB_ENDPOINT_XFERTYPE_MASK) | USB_ENDPOINT_XFER_BULK;
-                  endpoint->desc.bInterval = 0;
-              }
-          }
-          """
-          target = "memcpy(&endpoint->desc, d, n);"
-          assert target in code, "Target not found in config.c"
-          code = code.replace(target, target + "\n" + patch, 1)
-          with open("drivers/usb/core/config.c", "w") as f:
-              f.write(code)
-          '
-
-          # 2. تحويل أنابيب ath9k_htc إلى Bulk
-          sed -i 's/usb_sndintpipe/usb_sndbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
-          sed -i 's/usb_rcvintpipe/usb_rcvbulkpipe/g' drivers/net/wireless/ath/ath9k/hif_usb.c
-          sed -i 's/usb_fill_int_urb(\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^,]*\),\([^)]*\))/usb_fill_bulk_urb(\1,\2,\3,\4,\5,\6,\7)/g' drivers/net/wireless/ath/ath9k/hif_usb.c
-
-          # 3. مسارات الفيرموير
-          if [ -f drivers/base/firmware_class.c ]; then
-            sed -i 's|"/lib/firmware"|"/vendor/firmware", "/system/etc/firmware", "/lib/firmware"|g' drivers/base/firmware_class.c
-          fi
-
-          # 4. ترقيع حقن الحزم بدون تغيير حجم الذاكرة
-          if [ -f net/mac80211/tx.c ]; then
-            sed -i 's/if (unlikely(info->flags & IEEE80211_TX_CTL_INJECTED)) {/if (0 \&\& unlikely(info->flags \& IEEE80211_TX_CTL_INJECTED)) {/g' net/mac80211/tx.c
-          fi
-
       - name: Configure and Build Kernel
         run: |
           export PATH="$PWD/toolchain/clang/bin:$PWD/toolchain/gcc64/bin:$PWD/toolchain/gcc32/bin:$PATH"
+
+          # workaround for missing touchscreen firmware headers
           mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware
           touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
 
           make O=out ARCH=arm64 biloba_defconfig
 
-          # الإبقاء على إعدادات الشبكة الأصلية لـ biloba كما هي وإضافة تعريف AR9271 فقط
+          # enable stock ath9k_htc driver (AR9271) only
           ./scripts/config --file out/.config \
             -d WERROR \
             --set-str LOCALVERSION "-perf" \
             -d LOCALVERSION_AUTO \
+            -e USB \
+            -e CFG80211 \
             -e MAC80211 \
             -e WLAN_VENDOR_ATH \
             -e ATH_COMMON \
-            -e ATH_CARDS \
             -e ATH9K_HW \
             -e ATH9K_COMMON \
             -e ATH9K_HTC \
             -e CRYPTO_ARC4 \
             -e CRYPTO_MICHAEL_MIC \
-            -e FW_LOADER \
-            -e FW_LOADER_USER_HELPER \
-            -e FW_LOADER_USER_HELPER_FALLBACK
+            -e FW_LOADER
 
           make O=out ARCH=arm64 olddefconfig
+
+          # verify the driver is really enabled
+          grep -E "CONFIG_ATH9K_HTC|CONFIG_MAC80211=" out/.config
 
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang \
@@ -102,15 +69,14 @@ jobs:
 
       - name: Package AnyKernel3
         run: |
-          GH="https://github.com"
-          git clone --depth=1 "$GH/osm0sis/AnyKernel3.git"
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-NetHunter-Safe.zip * -x .git README.md *placeholder
+          cd AnyKernel3 && zip -r9 ../Biloba-AR9271.zip * -x .git README.md "*placeholder"
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-NetHunter-Safe
-          path: Biloba-NetHunter-Safe.zip
+          name: Biloba-AR9271
+          path: Biloba-AR9271.zip
