@@ -1,4 +1,4 @@
-name: Build Biloba Kernel AR9271
+name: Build Biloba Kernel AR9271 v3 (stock config)
 
 on:
   workflow_dispatch:
@@ -30,19 +30,21 @@ jobs:
         run: |
           export PATH="$PWD/toolchain/clang/bin:$PWD/toolchain/gcc64/bin:$PWD/toolchain/gcc32/bin:$PATH"
 
-          # workaround for missing touchscreen firmware headers
+          test -f stock.config || { echo "stock.config missing in repo root"; exit 1; }
+
           mkdir -p out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware
           touch out/drivers/input/touchscreen/mediatek/ft8719_spi/include/firmware/{fw_huaxing_v0c.i,fw_sample.i,fw_tianma_v0c.i,fw_boe_v0c.i}
 
-          make O=out ARCH=arm64 biloba_defconfig
+          # start from the exact stock config
+          cp stock.config out/.config
+          make O=out ARCH=arm64 olddefconfig
+          grep -E "CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WIRELESS_EXT|CONFIG_ATH|CONFIG_MODVERSIONS|CONFIG_LOCALVERSION" out/.config > /tmp/wifi_before.txt
+          echo "=== wifi-related config BEFORE ==="; cat /tmp/wifi_before.txt
 
-          # enable stock ath9k_htc driver (AR9271) only
+          # only add the ath9k_htc driver; do NOT touch cfg80211 options
           ./scripts/config --file out/.config \
             -d WERROR \
-            --set-str LOCALVERSION "-perf" \
-            -d LOCALVERSION_AUTO \
             -e USB \
-            -e CFG80211 \
             -e MAC80211 \
             -e WLAN_VENDOR_ATH \
             -e ATH_COMMON \
@@ -54,9 +56,9 @@ jobs:
             -e FW_LOADER
 
           make O=out ARCH=arm64 olddefconfig
-
-          # verify the driver is really enabled
-          grep -E "CONFIG_ATH9K_HTC|CONFIG_MAC80211=" out/.config
+          grep -E "CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WIRELESS_EXT|CONFIG_ATH|CONFIG_MODVERSIONS|CONFIG_LOCALVERSION" out/.config > /tmp/wifi_after.txt
+          echo "=== wifi-related config AFTER ==="; cat /tmp/wifi_after.txt
+          echo "=== DIFF ==="; diff /tmp/wifi_before.txt /tmp/wifi_after.txt || true
 
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang \
@@ -67,16 +69,19 @@ jobs:
             Image.gz-dtb \
             KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -fno-builtin-stpcpy -I$PWD/drivers/input/touchscreen/mediatek/ft8719_spi"
 
+          echo "=== KERNEL RELEASE ==="
+          make O=out ARCH=arm64 kernelrelease
+
       - name: Package AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
           cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's/device.name1=.*/device.name1=biloba/g' AnyKernel3/anykernel.sh
-          cd AnyKernel3 && zip -r9 ../Biloba-AR9271.zip * -x .git README.md "*placeholder"
+          cd AnyKernel3 && zip -r9 ../Biloba-AR9271-v3.zip * -x .git README.md "*placeholder"
 
       - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: Biloba-AR9271
-          path: Biloba-AR9271.zip
+          name: Biloba-AR9271-v3
+          path: Biloba-AR9271-v3.zip
